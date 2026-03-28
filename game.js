@@ -8,6 +8,7 @@
   const $score = document.getElementById("score");
   const $best = document.getElementById("best");
   const $dash = document.getElementById("dash");
+  const $rift = document.getElementById("rift");
   const $overlay = document.getElementById("overlay");
   const $overlayTitle = document.getElementById("overlayTitle");
   const $overlaySub = document.getElementById("overlaySub");
@@ -43,6 +44,8 @@
     best: getBest(),
     difficulty: 0,
     shake: 0,
+    timeWarp: 0,
+    riftSpawnTimer: 5,
     lastTs: performance.now(),
   };
 
@@ -68,6 +71,8 @@
 
   /** @type {{x:number,y:number,vx:number,vy:number,r:number,spin:number,phase:number}[]} */
   let rocks = [];
+  /** @type {{x:number,y:number,r:number,ttl:number,pulse:number}|null} */
+  let rift = null;
 
   const reset = () => {
     state.running = true;
@@ -75,6 +80,8 @@
     state.score = 0;
     state.difficulty = 0;
     state.shake = 0;
+    state.timeWarp = 0;
+    state.riftSpawnTimer = 4.2;
     state.lastTs = performance.now();
 
     player.x = W * 0.5;
@@ -88,6 +95,7 @@
     player.facingY = -1;
 
     rocks = [];
+    rift = null;
     hideOverlay();
     renderHud();
   };
@@ -139,6 +147,13 @@
     $best.textContent = String(Math.floor(state.best));
     if (player.dashCd <= 0) $dash.textContent = "就绪";
     else $dash.textContent = `${Math.ceil(player.dashCd * 10) / 10}s`;
+    if (state.timeWarp > 0) {
+      $rift.textContent = `减速中 ${Math.ceil(state.timeWarp * 10) / 10}s`;
+    } else if (rift) {
+      $rift.textContent = "可拾取";
+    } else {
+      $rift.textContent = "未出现";
+    }
   };
 
   const endGame = () => {
@@ -167,15 +182,36 @@
     return { ax, ay };
   };
 
+  const spawnRift = () => {
+    if (rift || state.t < 6) return;
+    rift = {
+      x: rand(110, W - 110),
+      y: rand(100, H - 130),
+      r: 15,
+      ttl: 8.2,
+      pulse: rand(0, Math.PI * 2),
+    };
+  };
+
   const update = (dt) => {
     state.t += dt;
     // 难度随时间上升（0~3.2 左右）
     state.difficulty = clamp(state.t / 22, 0, 3.2);
-    state.score += dt * (10 + state.difficulty * 7);
+    const scoreFactor = state.timeWarp > 0 ? 1.8 : 1;
+    state.score += dt * (10 + state.difficulty * 7) * scoreFactor;
 
     if (player.dashCd > 0) player.dashCd -= dt;
     if (player.dashTime > 0) player.dashTime -= dt;
     if (player.invuln > 0) player.invuln -= dt;
+    if (state.timeWarp > 0) state.timeWarp -= dt;
+
+    if (!rift) {
+      state.riftSpawnTimer -= dt;
+      if (state.riftSpawnTimer <= 0) {
+        spawnRift();
+        state.riftSpawnTimer = rand(9.5, 14);
+      }
+    }
 
     // 生成节奏随难度变化
     const baseRate = 1.4; // 每秒
@@ -218,14 +254,29 @@
     player.y = clamp(player.y, player.r + 6, H - player.r - 6);
 
     // 陨石更新
+    const timeScale = state.timeWarp > 0 ? 0.45 : 1;
     for (const r of rocks) {
-      r.x += r.vx * dt;
-      r.y += r.vy * dt;
+      r.x += r.vx * dt * timeScale;
+      r.y += r.vy * dt * timeScale;
       // 轻微摆动，让轨迹更“活”
-      r.phase += dt * r.spin;
-      r.x += Math.sin(r.phase) * dt * 22;
+      r.phase += dt * r.spin * timeScale;
+      r.x += Math.sin(r.phase) * dt * 22 * timeScale;
     }
     rocks = rocks.filter((r) => r.x > -120 && r.x < W + 120 && r.y > -160 && r.y < H + 160);
+
+    if (rift) {
+      rift.ttl -= dt;
+      rift.pulse += dt * 4;
+      const d = len(player.x - rift.x, player.y - rift.y);
+      if (d < player.r + rift.r + 3) {
+        state.timeWarp = 3.5;
+        state.shake = Math.max(state.shake, 5);
+        player.invuln = Math.max(player.invuln, 0.2);
+        rift = null;
+      } else if (rift.ttl <= 0) {
+        rift = null;
+      }
+    }
 
     // 碰撞检测
     if (player.invuln <= 0) {
@@ -281,6 +332,35 @@
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(r.x, r.y, r.r * 0.72, 0, Math.PI * 2);
+    ctx.stroke();
+  };
+
+  const drawRift = (orb) => {
+    const pulse = 0.65 + Math.sin(orb.pulse) * 0.35;
+    const rr = orb.r + pulse * 3;
+
+    const ring = ctx.createRadialGradient(orb.x, orb.y, rr * 0.3, orb.x, orb.y, rr * 2.8);
+    ring.addColorStop(0, "rgba(116,239,255,.6)");
+    ring.addColorStop(0.55, "rgba(44,178,255,.25)");
+    ring.addColorStop(1, "rgba(44,178,255,0)");
+    ctx.fillStyle = ring;
+    ctx.beginPath();
+    ctx.arc(orb.x, orb.y, rr * 2.8, 0, Math.PI * 2);
+    ctx.fill();
+
+    const core = ctx.createRadialGradient(orb.x - 3, orb.y - 3, 2, orb.x, orb.y, rr);
+    core.addColorStop(0, "#E6FCFF");
+    core.addColorStop(0.35, "#9AF2FF");
+    core.addColorStop(1, "#2CB2FF");
+    ctx.fillStyle = core;
+    ctx.beginPath();
+    ctx.arc(orb.x, orb.y, rr, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(255,255,255,.65)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(orb.x, orb.y, rr + 5, 0, Math.PI * 2);
     ctx.stroke();
   };
 
@@ -356,15 +436,23 @@
 
     // 陨石
     for (const r of rocks) drawRock(r);
+    // 时间裂隙道具
+    if (rift) drawRift(rift);
     // 玩家
     drawPlayer();
 
     ctx.restore();
 
+    if (state.timeWarp > 0) {
+      const alpha = 0.12 + 0.07 * Math.sin(state.t * 8);
+      ctx.fillStyle = `rgba(110, 224, 255, ${alpha})`;
+      ctx.fillRect(0, 0, W, H);
+    }
+
     // 角落小提示
     ctx.fillStyle = "rgba(234,242,255,.72)";
     ctx.font = "600 13px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Microsoft YaHei, Arial";
-    ctx.fillText("存活越久分数越高 · 冲刺有冷却", 16, H - 16);
+    ctx.fillText("存活越久分数越高 · 冲刺有冷却 · 裂隙减速期间得分加成", 16, H - 16);
   };
 
   const tick = (ts) => {

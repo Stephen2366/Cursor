@@ -10,14 +10,15 @@
     <main class="app">
       <header class="topbar">
         <div class="brand">
-          <div class="title">躲避陨石111</div>
-          <div class="hint">方向键/WASD 移动 · 空格 冲刺 · R 重开</div>
+          <div class="title">躲避陨石</div>
+          <div class="hint">方向键/WASD 移动 · 空格 冲刺 · 吃到时间裂隙可短时减速 · R 重开</div>
         </div>
         <div class="hud" aria-live="polite">
           <div class="pill"><span class="label">分数</span><span id="score">0</span></div>
           <div class="pill">
             <span class="label">冲刺</span><span id="dash">就绪</span>
           </div>
+          <div class="pill"><span class="label">裂隙</span><span id="rift">未出现</span></div>
           <div class="pill"><span class="label">最高</span><span id="best">0</span></div>
         </div>
       </header>
@@ -37,7 +38,7 @@
 
       <footer class="footer">
         <div class="tips">
-          小技巧：冲刺可以穿过缝隙，但别在边缘乱冲。
+          小技巧：优先找“时间裂隙”道具，吃到后能进入短暂子弹时间。
         </div>
       </footer>
     </main>
